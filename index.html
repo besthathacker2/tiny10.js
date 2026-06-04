@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>tiny10 Emulator — v86</title>
+<style>
+  :root {
+    --bg:#0d0d0d; --surface:#141414; --surface2:#1c1c1c; --border:#2a2a2a;
+    --accent:#00d4aa; --accent-dim:#00a882; --accent-glow:rgba(0,212,170,.12);
+    --text:#e8e8e8; --muted:#666; --dim:#999; --red:#ff4d4d; --amber:#f0a500;
+    --radius:6px; --radius-lg:10px;
+    --mono:'JetBrains Mono','Fira Code','Cascadia Code',monospace;
+    --ui:'DM Sans',system-ui,sans-serif;
+  }
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:var(--ui);min-height:100vh;display:flex;flex-direction:column}
+
+  /* Header */
+  .header{display:flex;align-items:center;justify-content:space-between;padding:10px 18px;border-bottom:1px solid var(--border);background:var(--surface);flex-shrink:0}
+  .logo{display:flex;align-items:center;gap:10px}
+  .logo-mark{width:26px;height:26px;border:1.5px solid var(--accent);border-radius:5px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:10px;font-weight:500;color:var(--accent)}
+  .logo-text{font-size:14px;font-weight:600;letter-spacing:-.3px}
+  .logo-sub{font-size:11px;color:var(--muted);margin-left:6px}
+  .status-pill{display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:20px;border:1px solid var(--border);font-size:11px;font-family:var(--mono);color:var(--muted);background:var(--surface2)}
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--muted);transition:background .3s}
+  .dot.running{background:var(--accent);box-shadow:0 0 6px var(--accent)}
+  .dot.loading{background:var(--amber);animation:pulse 1s ease-in-out infinite}
+  .dot.error{background:var(--red)}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+  /* Layout */
+  .main{display:flex;flex:1;overflow:hidden}
+
+  /* Sidebar */
+  .sidebar{width:230px;flex-shrink:0;border-right:1px solid var(--border);background:var(--surface);display:flex;flex-direction:column;overflow-y:auto}
+  .sidebar::-webkit-scrollbar{width:4px}
+  .sidebar::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+  .s-section{padding:14px;border-bottom:1px solid var(--border)}
+  .s-label{font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:10px}
+  .field{margin-bottom:9px}
+  .field label{display:block;font-size:11px;color:var(--dim);margin-bottom:3px}
+  .field input,.field select{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:12px;font-family:var(--mono);padding:5px 8px;outline:none;transition:border-color .2s}
+  .field input:focus,.field select:focus{border-color:var(--accent-dim)}
+  .field select option{background:#1c1c1c}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:6px 12px;border-radius:var(--radius);border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12px;font-family:var(--ui);font-weight:500;cursor:pointer;transition:all .15s;white-space:nowrap}
+  .btn:hover:not(:disabled){border-color:var(--accent-dim);color:var(--accent);background:var(--accent-glow)}
+  .btn:active:not(:disabled){transform:scale(.97)}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#0d0d0d;font-weight:600}
+  .btn.primary:hover:not(:disabled){background:var(--accent-dim);border-color:var(--accent-dim)}
+  .btn.danger:hover:not(:disabled){border-color:var(--red);background:rgba(255,77,77,.08);color:var(--red)}
+  .btn:disabled{opacity:.35;cursor:not-allowed}
+  .btn-row{display:flex;gap:6px;margin-bottom:8px}
+  .btn-full{width:100%}
+
+  /* Stats */
+  .stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+  .stat-card{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:7px 9px}
+  .stat-lbl{font-size:10px;color:var(--muted);font-family:var(--mono);margin-bottom:2px}
+  .stat-val{font-size:12px;font-weight:500;font-family:var(--mono);color:var(--text)}
+  .stat-val.hi{color:var(--accent)}
+
+  /* Shared files */
+  .file-drop{border:1px dashed var(--border);border-radius:var(--radius);padding:10px;text-align:center;cursor:pointer;transition:all .2s;position:relative;min-height:52px}
+  .file-drop:hover,.file-drop.over{border-color:var(--accent-dim);background:var(--accent-glow)}
+  .file-drop input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+  .file-drop-hint{font-size:11px;color:var(--muted);line-height:1.5;pointer-events:none}
+  .file-list{margin-top:8px;display:flex;flex-direction:column;gap:4px;max-height:120px;overflow-y:auto}
+  .file-list::-webkit-scrollbar{width:3px}
+  .file-list::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+  .file-item{display:flex;align-items:center;gap:6px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:4px 7px;font-size:11px;font-family:var(--mono)}
+  .file-item-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
+  .file-item-size{color:var(--muted);flex-shrink:0}
+  .file-item-del{background:none;border:none;color:var(--muted);cursor:pointer;padding:0 2px;font-size:13px;line-height:1;flex-shrink:0}
+  .file-item-del:hover{color:var(--red)}
+  .floppy-note{font-size:10px;color:var(--muted);margin-top:6px;line-height:1.4}
+
+  /* Emulator */
+  .emu-area{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+  .emu-toolbar{display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--border);background:var(--surface);flex-shrink:0}
+  .emu-toolbar .sp{flex:1}
+  .screen-wrap{flex:1;display:flex;align-items:center;justify-content:center;background:#080808;position:relative;overflow:hidden}
+  #screen_container{position:relative;display:inline-block}
+  #screen_container canvas{display:block}
+
+  /* Overlay */
+  .overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:#080808;z-index:10;transition:opacity .3s}
+  .overlay.gone{display:none}
+  .ov-icon{width:60px;height:60px;border:1.5px solid var(--border);border-radius:13px;display:flex;align-items:center;justify-content:center;font-size:26px;color:var(--muted)}
+  .ov-title{font-size:18px;font-weight:600}
+  .ov-sub{font-size:12px;color:var(--muted);text-align:center;max-width:300px;line-height:1.5}
+
+  /* Progress */
+  .prog-wrap{width:260px}
+  .prog-bg{height:3px;background:var(--border);border-radius:2px;overflow:hidden;margin-bottom:5px}
+  .prog-fill{height:100%;background:var(--accent);border-radius:2px;transition:width .3s;width:0%}
+  .prog-text{font-size:11px;font-family:var(--mono);color:var(--muted);text-align:center}
+
+  /* Error box */
+  .err-box{background:rgba(255,77,77,.08);border:1px solid rgba(255,77,77,.3);border-radius:var(--radius);padding:10px 14px;font-size:12px;color:var(--red);font-family:var(--mono);max-width:380px;line-height:1.5;display:none}
+  .err-box.show{display:block}
+
+  /* Serial */
+  .serial-area{height:130px;flex-shrink:0;border-top:1px solid var(--border);display:flex;flex-direction:column}
+  .serial-header{display:flex;align-items:center;justify-content:space-between;padding:5px 12px;border-bottom:1px solid var(--border);background:var(--surface)}
+  .serial-title{font-size:11px;font-weight:500;color:var(--muted);font-family:var(--mono);display:flex;align-items:center;gap:6px}
+  .serial-title::before{content:'';width:5px;height:5px;border-radius:50%;background:var(--muted)}
+  .serial-title.active::before{background:var(--accent);box-shadow:0 0 5px var(--accent)}
+  #serial_log{flex:1;overflow-y:auto;padding:7px 12px;font-family:var(--mono);font-size:11px;color:#5a8a6a;line-height:1.6;background:#080808;word-break:break-all}
+  #serial_log::-webkit-scrollbar{width:4px}
+  #serial_log::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+
+  .flash{position:fixed;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:9999;transition:opacity .05s}
+  .flash.go{opacity:.3}
+</style>
+</head>
+<body>
+<div class="flash" id="flash"></div>
+
+<header class="header">
+  <div class="logo">
+    <div class="logo-mark">v86</div>
+    <span class="logo-text">tiny10 Emulator</span>
+    <span class="logo-sub">x86 · libv86</span>
+  </div>
+  <div class="status-pill">
+    <div class="dot" id="dot"></div>
+    <span id="status_text">idle</span>
+  </div>
+</header>
+
+<div class="main">
+  <aside class="sidebar">
+
+    <div class="s-section">
+      <div class="s-label">Hardware</div>
+      <div class="field">
+        <label>RAM</label>
+        <select id="ram_select">
+          <option value="512">512 MB</option>
+          <option value="1024" selected>1 GB</option>
+          <option value="2048">2 GB</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Boot device</label>
+        <select id="boot_select">
+          <option value="hda">Hard Drive (HDA)</option>
+          <option value="cdrom" selected>CD-ROM</option>
+          <option value="fda">Floppy (FDA)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="s-section">
+      <div class="s-label">Controls</div>
+      <div class="btn-row"><button class="btn primary btn-full" id="btn_start" onclick="startEmulator()">▶ Boot</button></div>
+      <div class="btn-row">
+        <button class="btn" id="btn_pause" onclick="togglePause()" disabled>⏸ Pause</button>
+        <button class="btn danger" id="btn_stop" onclick="stopEmulator()" disabled>⏹ Stop</button>
+      </div>
+      <div class="btn-row">
+        <button class="btn" id="btn_cad" onclick="sendCtrlAltDel()" disabled>Ctrl+Alt+Del</button>
+        <button class="btn" id="btn_ss" onclick="takeScreenshot()" disabled title="Screenshot">📷</button>
+      </div>
+    </div>
+
+    <div class="s-section">
+      <div class="s-label">Stats</div>
+      <div class="stat-grid">
+        <div class="stat-card"><div class="stat-lbl">IPS</div><div class="stat-val hi" id="stat_ips">—</div></div>
+        <div class="stat-card"><div class="stat-lbl">RAM</div><div class="stat-val" id="stat_ram">—</div></div>
+        <div class="stat-card"><div class="stat-lbl">State</div><div class="stat-val" id="stat_state">idle</div></div>
+        <div class="stat-card"><div class="stat-lbl">Uptime</div><div class="stat-val" id="stat_uptime">—</div></div>
+      </div>
+    </div>
+
+    <div class="s-section">
+      <div class="s-label">Shared Files → A:</div>
+      <div class="file-drop" id="file_drop">
+        <input type="file" id="file_input" multiple>
+        <div class="file-drop-hint">Drop files here or click<br>Mounted as floppy A:</div>
+      </div>
+      <div class="file-list" id="file_list"></div>
+      <div class="floppy-note" id="floppy_note" style="display:none"></div>
+    </div>
+
+    <div class="s-section">
+      <div class="s-label">State</div>
+      <div class="btn-row">
+        <button class="btn" id="btn_save" onclick="saveState()" disabled>💾 Save</button>
+        <button class="btn" id="btn_load_state" onclick="document.getElementById('state_file').click()" disabled>📂 Load</button>
+      </div>
+      <input type="file" id="state_file" accept=".bin" style="display:none" onchange="restoreState(this)">
+    </div>
+
+  </aside>
+
+  <div class="emu-area">
+    <div class="emu-toolbar">
+      <span style="font-size:11px;color:var(--muted);font-family:var(--mono)">Screen</span>
+      <div class="sp"></div>
+      <button class="btn" onclick="goFullscreen()" title="Fullscreen">⛶</button>
+    </div>
+
+    <div class="screen-wrap" id="screen_wrap">
+      <div class="overlay" id="overlay">
+        <div class="ov-icon">🖥️</div>
+        <div class="ov-title">tiny10 Emulator</div>
+        <div class="ov-sub" id="ov_sub">tiny10 23H2 (x64) is pre-loaded. Press Boot to start — the ISO streams directly from archive.org.</div>
+        <div class="prog-wrap" id="prog_wrap" style="display:none">
+          <div class="prog-bg"><div class="prog-fill" id="prog_fill"></div></div>
+          <div class="prog-text" id="prog_text">Loading…</div>
+        </div>
+        <div class="err-box" id="err_box"></div>
+        <button class="btn primary" onclick="startEmulator()" id="ov_boot_btn">▶ Boot</button>
+      </div>
+
+      <div id="screen_container">
+        <div style="white-space:pre;font-family:monospace;font-size:13px;line-height:1.4" id="vga_bios"></div>
+        <canvas id="vga_canvas"></canvas>
+      </div>
+    </div>
+
+    <div class="serial-area">
+      <div class="serial-header">
+        <span class="serial-title" id="serial_title">Serial output</span>
+        <button class="btn" onclick="clearSerial()" style="padding:3px 8px;font-size:10px">Clear</button>
+      </div>
+      <div id="serial_log"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+// ── Shared files (FAT12 floppy) ───────────────────────────────────────────────
+const sharedFiles = []; // [{name, data: Uint8Array}]
+const MAX_FLOPPY = 1474560; // 1.44 MB
+
+const fileDrop = document.getElementById('file_drop');
+const fileInput = document.getElementById('file_input');
+
+fileDrop.addEventListener('dragover', e => { e.preventDefault(); fileDrop.classList.add('over'); });
+fileDrop.addEventListener('dragleave', () => fileDrop.classList.remove('over'));
+fileDrop.addEventListener('drop', e => { e.preventDefault(); fileDrop.classList.remove('over'); addFiles(e.dataTransfer.files); });
+fileInput.addEventListener('change', function() { addFiles(this.files); this.value=''; });
+
+async function addFiles(fileList) {
+  for (const f of fileList) {
+    const buf = await f.arrayBuffer();
+    sharedFiles.push({ name: f.name.replace(/[^A-Za-z0-9._\-]/g,'_').toUpperCase().slice(0,12), data: new Uint8Array(buf), origName: f.name });
+  }
+  renderFileList();
+}
+
+function removeFile(i) { sharedFiles.splice(i,1); renderFileList(); }
+
+function renderFileList() {
+  const list = document.getElementById('file_list');
+  const note = document.getElementById('floppy_note');
+  list.innerHTML = '';
+  let total = 0;
+  sharedFiles.forEach((f,i) => {
+    total += f.data.length;
+    const el = document.createElement('div');
+    el.className = 'file-item';
+    el.innerHTML = `<span class="file-item-name" title="${f.origName}">${f.origName}</span>
+      <span class="file-item-size">${fmtSize(f.data.length)}</span>
+      <button class="file-item-del" onclick="removeFile(${i})">✕</button>`;
+    list.appendChild(el);
+  });
+  if (sharedFiles.length) {
+    const used = Math.round(total/MAX_FLOPPY*100);
+    note.textContent = `${fmtSize(total)} used of 1.44 MB floppy (${used}%)${total>MAX_FLOPPY?' — TOO LARGE':''}`;
+    note.style.display = 'block';
+    note.style.color = total > MAX_FLOPPY ? 'var(--red)' : 'var(--muted)';
+  } else {
+    note.style.display = 'none';
+  }
+}
+
+function fmtSize(b) {
+  if (b < 1024) return b+'B';
+  if (b < 1048576) return (b/1024).toFixed(1)+'KB';
+  return (b/1048576).toFixed(1)+'MB';
+}
+
+// Build a FAT12 1.44MB floppy image containing sharedFiles
+function buildFAT12Image() {
+  const SECTOR = 512, SECTORS = 2880, SIZE = SECTOR * SECTORS;
+  const img = new Uint8Array(SIZE);
+
+  // ── Boot sector ──────────────────────────────────────────────────────────────
+  const boot = img;
+  boot[0]=0xEB; boot[1]=0x3C; boot[2]=0x90;              // JMP + NOP
+  const enc = s => s.split('').forEach((c,i)=>boot[3+i]=c.charCodeAt(0));
+  enc('MSDOS5.0');                                        // OEM name
+  const w = (off,v) => { boot[off]=v&0xFF; boot[off+1]=(v>>8)&0xFF; };
+  const dw = (off,v) => { w(off,v); w(off+2,v>>16); };
+  w(11, 512);   // bytes/sector
+  boot[13]=1;   // sectors/cluster
+  w(14, 1);     // reserved sectors
+  boot[16]=2;   // FAT count
+  w(17, 224);   // root entries
+  w(19, 2880);  // total sectors
+  boot[21]=0xF0; // media type (1.44MB)
+  w(22, 9);     // sectors/FAT
+  w(24, 18);    // sectors/track
+  w(26, 2);     // heads
+  dw(28, 0);    // hidden sectors
+  dw(32, 0);    // large sectors
+  boot[36]=0x00; boot[37]=0x00; boot[38]=0x29; // drive/reserved/sig
+  dw(39, 0x12345678); // volume ID
+  'NO NAME    '.split('').forEach((c,i)=>boot[43+i]=c.charCodeAt(0));
+  'FAT12   '.split('').forEach((c,i)=>boot[54+i]=c.charCodeAt(0));
+  boot[510]=0x55; boot[511]=0xAA;
+
+  // ── FAT helpers ──────────────────────────────────────────────────────────────
+  const FAT1_OFF = 512;           // FAT1 starts at sector 1
+  const FAT2_OFF = FAT1_OFF + 9*512;
+  const ROOT_OFF = FAT2_OFF + 9*512; // root dir at sector 19
+  const DATA_OFF = ROOT_OFF + 14*512; // data area at sector 33 (cluster 2)
+
+  function setFAT(fat, cluster, val) {
+    const idx = cluster * 3 >> 1;
+    if (cluster & 1) {
+      fat[FAT1_OFF+idx]   = (fat[FAT1_OFF+idx] & 0x0F) | ((val & 0xF) << 4);
+      fat[FAT1_OFF+idx+1] = (val >> 4) & 0xFF;
+      fat[FAT2_OFF+idx]   = (fat[FAT2_OFF+idx] & 0x0F) | ((val & 0xF) << 4);
+      fat[FAT2_OFF+idx+1] = (val >> 4) & 0xFF;
+    } else {
+      fat[FAT1_OFF+idx]   = val & 0xFF;
+      fat[FAT1_OFF+idx+1] = (fat[FAT1_OFF+idx+1] & 0xF0) | ((val >> 8) & 0xF);
+      fat[FAT2_OFF+idx]   = val & 0xFF;
+      fat[FAT2_OFF+idx+1] = (fat[FAT2_OFF+idx+1] & 0xF0) | ((val >> 8) & 0xF);
+    }
+  }
+
+  // Media byte + EOC in FAT
+  img[FAT1_OFF]=0xF0; img[FAT1_OFF+1]=0xFF; img[FAT1_OFF+2]=0xFF;
+  img[FAT2_OFF]=0xF0; img[FAT2_OFF+1]=0xFF; img[FAT2_OFF+2]=0xFF;
+
+  let cluster = 2;
+
+  sharedFiles.forEach((f, fi) => {
+    // ── Root directory entry (32 bytes each) ──
+    const dOff = ROOT_OFF + fi * 32;
+    // 8.3 filename
+    const dot = f.name.lastIndexOf('.');
+    const base = (dot>0 ? f.name.slice(0,dot) : f.name).padEnd(8,' ').slice(0,8);
+    const ext  = (dot>0 ? f.name.slice(dot+1) : '').padEnd(3,' ').slice(0,3);
+    base.split('').forEach((c,i) => img[dOff+i]  = c.charCodeAt(0));
+    ext.split('').forEach((c,i)  => img[dOff+8+i]= c.charCodeAt(0));
+    img[dOff+11] = 0x20;  // archive attribute
+    // time/date (arbitrary)
+    img[dOff+22]=0x00; img[dOff+23]=0x00; // time
+    img[dOff+24]=0x21; img[dOff+25]=0x00; // date (Jan 1 2000)
+    // starting cluster
+    img[dOff+26] = cluster & 0xFF;
+    img[dOff+27] = (cluster >> 8) & 0xFF;
+    // file size
+    const sz = f.data.length;
+    img[dOff+28]=sz&0xFF; img[dOff+29]=(sz>>8)&0xFF;
+    img[dOff+30]=(sz>>16)&0xFF; img[dOff+31]=(sz>>24)&0xFF;
+
+    // ── Copy file data into clusters ──
+    let remaining = f.data.length;
+    let srcOff = 0;
+    const startCluster = cluster;
+    while (remaining > 0) {
+      const clusterOff = DATA_OFF + (cluster - 2) * 512;
+      const chunk = Math.min(remaining, 512);
+      img.set(f.data.subarray(srcOff, srcOff + chunk), clusterOff);
+      srcOff += chunk; remaining -= chunk;
+      const nextCluster = remaining > 0 ? cluster + 1 : 0xFFF;
+      setFAT(img, cluster, nextCluster);
+      cluster++;
+    }
+  });
+
+  return img.buffer;
+}
+
+
+const TINY10_URL = 'https://archive.org/download/tiny-10-23-h2/tiny10%20x64%2023h2.iso';
+let emulator = null, paused = false;
+let statsTimer = null, uptimeStart = null;
+
+// ── Logging ───────────────────────────────────────────────────────────────────
+let serialBuf = '';
+function log(msg) {
+  const el = document.getElementById('serial_log');
+  const d = document.createElement('div'); d.textContent = msg;
+  el.appendChild(d); el.scrollTop = el.scrollHeight;
+  document.getElementById('serial_title').classList.add('active');
+}
+function clearSerial() { document.getElementById('serial_log').innerHTML=''; document.getElementById('serial_title').classList.remove('active'); }
+
+// ── Status ────────────────────────────────────────────────────────────────────
+function setStatus(cls, text) {
+  document.getElementById('dot').className = 'dot ' + cls;
+  document.getElementById('status_text').textContent = text;
+  document.getElementById('stat_state').textContent = text;
+}
+
+// ── Overlay ───────────────────────────────────────────────────────────────────
+function showOverlay(sub) {
+  document.getElementById('overlay').classList.remove('gone');
+  if(sub !== undefined) document.getElementById('ov_sub').textContent = sub;
+}
+function hideOverlay() { document.getElementById('overlay').classList.add('gone'); }
+function showError(msg) {
+  const b = document.getElementById('err_box'); b.textContent = msg; b.classList.add('show');
+  document.getElementById('prog_wrap').style.display = 'none';
+  document.getElementById('ov_boot_btn').disabled = false;
+}
+function clearError() { document.getElementById('err_box').classList.remove('show'); }
+
+function setProgress(pct, text) {
+  const pw = document.getElementById('prog_wrap');
+  pw.style.display = (pct >= 0 && pct <= 99) ? 'block' : 'none';
+  document.getElementById('prog_fill').style.width = pct + '%';
+  document.getElementById('prog_text').textContent = text;
+}
+
+// ── Load v86 dynamically (fetch → Blob URL → script tag) ─────────────────────
+let v86Loaded = false;
+
+async function ensureV86() {
+  if (v86Loaded && typeof V86 !== 'undefined') return true;
+
+  const LIB_URL = 'https://cdn.jsdelivr.net/npm/v86@0.5.44/build/libv86.js';
+  log('Loading libv86.js…');
+  setProgress(10, 'Loading libv86.js…');
+
+  await new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = LIB_URL;
+    script.onload = resolve;
+    script.onerror = () => reject(new Error('Failed to load libv86.js from jsDelivr. Check your internet connection.'));
+    document.head.appendChild(script);
+  });
+
+  if (typeof V86 === 'undefined') throw new Error('V86 class not found after loading libv86.js');
+  v86Loaded = true;
+  log('libv86.js loaded ✓');
+  return true;
+}
+
+// ── Start emulator ────────────────────────────────────────────────────────────
+async function startEmulator() {
+  if (emulator) stopEmulator();
+
+  const ramMB = parseInt(document.getElementById('ram_select').value);
+  const boot  = document.getElementById('boot_select').value;
+
+  clearError();
+  setStatus('loading', 'loading');
+  showOverlay('Loading emulator…');
+  setProgress(2, 'Starting…');
+  document.getElementById('ov_boot_btn').disabled = true;
+  setButtons(false, false);
+
+  try {
+    await ensureV86();
+  } catch(e) {
+    setStatus('error', 'error');
+    showError(e.message);
+    document.getElementById('ov_boot_btn').disabled = false;
+    return;
+  }
+
+  log(`Booting — RAM:${ramMB}MB  boot:${boot}`);
+  log(`Image: ${TINY10_URL}`);
+  setProgress(50, 'Initialising CPU…');
+
+  const WASM_URL = 'https://cdn.jsdelivr.net/npm/v86@0.5.44/build/v86.wasm';
+  const BIOS_URL = 'https://cdn.jsdelivr.net/npm/v86@0.5.44/bios/seabios.bin';
+  const VGA_URL  = 'https://cdn.jsdelivr.net/npm/v86@0.5.44/bios/vgabios.bin';
+
+  const cfg = {
+    wasm_path: WASM_URL,
+    memory_size: ramMB * 1024 * 1024,
+    vga_memory_size: 8 * 1024 * 1024,
+    screen_container: document.getElementById('screen_container'),
+    bios:     { url: BIOS_URL },
+    vga_bios: { url: VGA_URL  },
+    autostart: true,
+  };
+
+  if      (boot === 'hda')   { cfg.hda   = { url: TINY10_URL, async: true }; cfg.boot_order = 0x123; }
+  else if (boot === 'cdrom') { cfg.cdrom = { url: TINY10_URL, async: true }; cfg.boot_order = 0x132; }
+  else                       { cfg.fda   = { url: TINY10_URL              }; cfg.boot_order = 0x312; }
+
+  // Mount shared files as a FAT12 floppy on A: (only if files added and not booting from floppy)
+  if (sharedFiles.length > 0 && boot !== 'fda') {
+    const totalSize = sharedFiles.reduce((s,f)=>s+f.data.length,0);
+    if (totalSize <= MAX_FLOPPY) {
+      cfg.fda = { buffer: buildFAT12Image() };
+      log(`Shared floppy: ${sharedFiles.length} file(s) → A: drive`);
+    } else {
+      log('WARNING: shared files exceed 1.44MB — floppy not mounted');
+    }
+  }
+
+  try {
+    emulator = new V86(cfg);
+  } catch(e) {
+    setStatus('error', 'error');
+    showError('Failed to create emulator: ' + e.message);
+    document.getElementById('ov_boot_btn').disabled = false;
+    return;
+  }
+
+  emulator.add_listener('emulator-ready', () => {
+    log('Emulator ready ✓');
+    setStatus('running', 'running');
+    hideOverlay();
+    setProgress(100, '');
+    setButtons(true, false);
+    uptimeStart = Date.now();
+    startStats();
+  });
+
+  emulator.add_listener('emulator-stopped', () => {
+    log('— Emulator stopped —');
+    setStatus('', 'stopped');
+    setButtons(false, false);
+    document.getElementById('btn_start').disabled = false;
+    stopStats();
+  });
+
+  emulator.add_listener('download-progress', e => {
+    if (e.total) {
+      const pct = 50 + Math.round(e.loaded / e.total * 48);
+      setProgress(pct, `Loading image… ${Math.round(e.loaded/e.total*100)}%`);
+    }
+  });
+
+  emulator.add_listener('serial0-output-byte', b => {
+    const ch = String.fromCharCode(b);
+    if (ch === '\n' || ch === '\r') {
+      if (serialBuf.trim()) log(serialBuf);
+      serialBuf = '';
+    } else {
+      serialBuf += ch;
+      if (serialBuf.length > 200) { log(serialBuf); serialBuf = ''; }
+    }
+  });
+}
+
+// ── Pause ─────────────────────────────────────────────────────────────────────
+function togglePause() {
+  if (!emulator) return;
+  paused = !paused;
+  if (paused) { emulator.stop(); setStatus('', 'paused'); document.getElementById('btn_pause').textContent = '▶ Resume'; }
+  else        { emulator.run();  setStatus('running','running'); document.getElementById('btn_pause').textContent = '⏸ Pause'; }
+}
+
+// ── Stop ──────────────────────────────────────────────────────────────────────
+function stopEmulator() {
+  if (!emulator) return;
+  emulator.stop(); emulator = null; paused = false;
+  setStatus('', 'idle');
+  setButtons(false, false);
+  document.getElementById('btn_start').disabled = false;
+  document.getElementById('btn_pause').textContent = '⏸ Pause';
+  showOverlay('Emulator stopped. Load a disk image and press Boot.');
+  stopStats();
+}
+
+// ── Ctrl+Alt+Del ──────────────────────────────────────────────────────────────
+function sendCtrlAltDel() {
+  if (!emulator) return;
+  emulator.keyboard_send_scancodes([0xe0,0x1d,0x38,0x53,0xe0,0xd3,0xb8,0x9d]);
+  log('Sent Ctrl+Alt+Del');
+}
+
+// ── Screenshot ────────────────────────────────────────────────────────────────
+function takeScreenshot() {
+  if (!emulator) return;
+  emulator.screen_make_screenshot();
+  const f = document.getElementById('flash'); f.classList.add('go'); setTimeout(()=>f.classList.remove('go'),80);
+}
+
+// ── Fullscreen ────────────────────────────────────────────────────────────────
+function goFullscreen() {
+  const w = document.getElementById('screen_wrap');
+  (w.requestFullscreen || w.webkitRequestFullscreen || w.mozRequestFullScreen).call(w);
+}
+
+// ── State save/load ───────────────────────────────────────────────────────────
+async function saveState() {
+  if (!emulator) return;
+  const state = await emulator.save_state();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([state]));
+  a.download = 'v86-state.bin'; a.click();
+  log('State saved.');
+}
+function loadStateFile() { document.getElementById('state_file').click(); }
+async function restoreState(input) {
+  if (!emulator || !input.files[0]) return;
+  await emulator.restore_state(await input.files[0].arrayBuffer());
+  log('State restored: ' + input.files[0].name);
+}
+
+// ── Button helpers ────────────────────────────────────────────────────────────
+function setButtons(running, starting) {
+  ['btn_pause','btn_stop','btn_cad','btn_ss','btn_save','btn_load_state'].forEach(id => {
+    document.getElementById(id).disabled = !running;
+  });
+  document.getElementById('btn_start').disabled = running || starting;
+}
+
+// ── Stats ─────────────────────────────────────────────────────────────────────
+function startStats() {
+  stopStats();
+  statsTimer = setInterval(() => {
+    if (!emulator) return;
+    try {
+      const ips = emulator.get_instructions_per_second();
+      document.getElementById('stat_ips').textContent =
+        ips > 1e9 ? (ips/1e9).toFixed(1)+'G' :
+        ips > 1e6 ? (ips/1e6).toFixed(1)+'M' :
+        ips > 1e3 ? (ips/1e3).toFixed(0)+'K' : String(ips);
+    } catch(e){}
+    document.getElementById('stat_ram').textContent = document.getElementById('ram_select').value + ' MB';
+    if (uptimeStart) {
+      const s = Math.floor((Date.now()-uptimeStart)/1000);
+      document.getElementById('stat_uptime').textContent =
+        s < 60 ? s+'s' : Math.floor(s/60)+'m '+(s%60)+'s';
+    }
+  }, 1000);
+}
+function stopStats() {
+  clearInterval(statsTimer);
+  ['stat_ips','stat_ram','stat_uptime'].forEach(id => document.getElementById(id).textContent='—');
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+log('tiny10 23H2 (x64) ready — press ▶ Boot to start.');
+log('The ISO streams from archive.org (~2 GB, async).');
+</script>
+</body>
+</html>
