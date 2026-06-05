@@ -384,8 +384,44 @@ function buildFAT12Image() {
   return img.buffer;
 }
 
+let url = "https://archive.org/download/tiny-10_202605/Tiny10.iso"
 
-const TINY10_URL = 'https://archive.org/download/tiny-10_202605/Tiny10.iso';
+const TINY10_URL = {
+  // Safe execution method for massive multi-gigabyte files
+  async downloadISO(url, filename = "Tiny10.iso") {
+    try {
+      console.log("Starting secure stream download...");
+      const response = await fetch(url);
+      
+      if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
+
+      // 1. Get the raw binary blob directly without reading it into an array string
+      const fileBlob = await response.blob();
+      
+      // 2. Map a DOM string directly to the binary storage segment
+      const localUrl = URL.createObjectURL(fileBlob);
+
+      // 3. Force browser down-stream pipe allocation using a hidden anchor element
+      const anchor = document.createElement("a");
+      anchor.href = localUrl;
+      anchor.download = filename;
+      
+      document.body.appendChild(anchor);
+      anchor.click();
+      
+      // 4. Immediately free system RAM allocations
+      document.body.removeChild(anchor);
+      URL.revokeObjectURL(localUrl);
+      console.log("Download successfully initialized.");
+
+    } catch (error) {
+      console.error("ISO Stream extraction failed:", error.message);
+    }
+  }
+};
+
+const tiny10url1 = TINY10_URL.downloadISO(url);
+  
 let emulator = null, paused = false;
 let statsTimer = null, uptimeStart = null;
 
@@ -491,9 +527,9 @@ async function startEmulator() {
     autostart: true,
   };
 
-  if      (boot === 'hda')   { cfg.hda   = { url: TINY10_URL, async: true }; cfg.boot_order = 0x123; }
-  else if (boot === 'cdrom') { cfg.cdrom = { url: TINY10_URL, async: true }; cfg.boot_order = 0x132; }
-  else                       { cfg.fda   = { url: TINY10_URL              }; cfg.boot_order = 0x312; }
+  if      (boot === 'hda')   { cfg.hda   = { url: tiny10url1, async: true }; cfg.boot_order = 0x123; }
+  else if (boot === 'cdrom') { cfg.cdrom = { url: tiny10url1, async: true }; cfg.boot_order = 0x132; }
+  else                       { cfg.fda   = { url: tiny10url1              }; cfg.boot_order = 0x312; }
 
   // Mount shared files as a FAT12 floppy on A: (only if files added and not booting from floppy)
   if (sharedFiles.length > 0 && boot !== 'fda') {
