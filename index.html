@@ -236,8 +236,11 @@
 <script>
 "use strict";
 
+// ── ISO URL ───────────────────────────────────────────────────────────────────
+const TINY10_URL = "https://archive.org/download/tiny-10_202605/Tiny10.iso";
+
 // ── Shared files (FAT12 floppy) ───────────────────────────────────────────────
-const sharedFiles = []; // [{name, data: Uint8Array}]
+const sharedFiles = [];
 const MAX_FLOPPY = 1474560; // 1.44 MB
 
 const fileDrop = document.getElementById('file_drop');
@@ -293,36 +296,34 @@ function buildFAT12Image() {
   const SECTOR = 512, SECTORS = 2880, SIZE = SECTOR * SECTORS;
   const img = new Uint8Array(SIZE);
 
-  // ── Boot sector ──────────────────────────────────────────────────────────────
   const boot = img;
-  boot[0]=0xEB; boot[1]=0x3C; boot[2]=0x90;              // JMP + NOP
+  boot[0]=0xEB; boot[1]=0x3C; boot[2]=0x90;
   const enc = s => s.split('').forEach((c,i)=>boot[3+i]=c.charCodeAt(0));
-  enc('MSDOS5.0');                                        // OEM name
+  enc('MSDOS5.0');
   const w = (off,v) => { boot[off]=v&0xFF; boot[off+1]=(v>>8)&0xFF; };
   const dw = (off,v) => { w(off,v); w(off+2,v>>16); };
-  w(11, 512);   // bytes/sector
-  boot[13]=1;   // sectors/cluster
-  w(14, 1);     // reserved sectors
-  boot[16]=2;   // FAT count
-  w(17, 224);   // root entries
-  w(19, 2880);  // total sectors
-  boot[21]=0xF0; // media type (1.44MB)
-  w(22, 9);     // sectors/FAT
-  w(24, 18);    // sectors/track
-  w(26, 2);     // heads
-  dw(28, 0);    // hidden sectors
-  dw(32, 0);    // large sectors
-  boot[36]=0x00; boot[37]=0x00; boot[38]=0x29; // drive/reserved/sig
-  dw(39, 0x12345678); // volume ID
+  w(11, 512);
+  boot[13]=1;
+  w(14, 1);
+  boot[16]=2;
+  w(17, 224);
+  w(19, 2880);
+  boot[21]=0xF0;
+  w(22, 9);
+  w(24, 18);
+  w(26, 2);
+  dw(28, 0);
+  dw(32, 0);
+  boot[36]=0x00; boot[37]=0x00; boot[38]=0x29;
+  dw(39, 0x12345678);
   'NO NAME    '.split('').forEach((c,i)=>boot[43+i]=c.charCodeAt(0));
   'FAT12   '.split('').forEach((c,i)=>boot[54+i]=c.charCodeAt(0));
   boot[510]=0x55; boot[511]=0xAA;
 
-  // ── FAT helpers ──────────────────────────────────────────────────────────────
-  const FAT1_OFF = 512;           // FAT1 starts at sector 1
+  const FAT1_OFF = 512;
   const FAT2_OFF = FAT1_OFF + 9*512;
-  const ROOT_OFF = FAT2_OFF + 9*512; // root dir at sector 19
-  const DATA_OFF = ROOT_OFF + 14*512; // data area at sector 33 (cluster 2)
+  const ROOT_OFF = FAT2_OFF + 9*512;
+  const DATA_OFF = ROOT_OFF + 14*512;
 
   function setFAT(fat, cluster, val) {
     const idx = cluster * 3 >> 1;
@@ -339,37 +340,29 @@ function buildFAT12Image() {
     }
   }
 
-  // Media byte + EOC in FAT
   img[FAT1_OFF]=0xF0; img[FAT1_OFF+1]=0xFF; img[FAT1_OFF+2]=0xFF;
   img[FAT2_OFF]=0xF0; img[FAT2_OFF+1]=0xFF; img[FAT2_OFF+2]=0xFF;
 
   let cluster = 2;
 
   sharedFiles.forEach((f, fi) => {
-    // ── Root directory entry (32 bytes each) ──
     const dOff = ROOT_OFF + fi * 32;
-    // 8.3 filename
     const dot = f.name.lastIndexOf('.');
     const base = (dot>0 ? f.name.slice(0,dot) : f.name).padEnd(8,' ').slice(0,8);
     const ext  = (dot>0 ? f.name.slice(dot+1) : '').padEnd(3,' ').slice(0,3);
     base.split('').forEach((c,i) => img[dOff+i]  = c.charCodeAt(0));
     ext.split('').forEach((c,i)  => img[dOff+8+i]= c.charCodeAt(0));
-    img[dOff+11] = 0x20;  // archive attribute
-    // time/date (arbitrary)
-    img[dOff+22]=0x00; img[dOff+23]=0x00; // time
-    img[dOff+24]=0x21; img[dOff+25]=0x00; // date (Jan 1 2000)
-    // starting cluster
+    img[dOff+11] = 0x20;
+    img[dOff+22]=0x00; img[dOff+23]=0x00;
+    img[dOff+24]=0x21; img[dOff+25]=0x00;
     img[dOff+26] = cluster & 0xFF;
     img[dOff+27] = (cluster >> 8) & 0xFF;
-    // file size
     const sz = f.data.length;
     img[dOff+28]=sz&0xFF; img[dOff+29]=(sz>>8)&0xFF;
     img[dOff+30]=(sz>>16)&0xFF; img[dOff+31]=(sz>>24)&0xFF;
 
-    // ── Copy file data into clusters ──
     let remaining = f.data.length;
     let srcOff = 0;
-    const startCluster = cluster;
     while (remaining > 0) {
       const clusterOff = DATA_OFF + (cluster - 2) * 512;
       const chunk = Math.min(remaining, 512);
@@ -384,44 +377,6 @@ function buildFAT12Image() {
   return img.buffer;
 }
 
-let url = "https://archive.org/download/tiny-10_202605/Tiny10.iso"
-
-const TINY10_URL = {
-  // Safe execution method for massive multi-gigabyte files
-  async downloadISO(url, filename = "Tiny10.iso") {
-    try {
-      console.log("Starting secure stream download...");
-      const response = await fetch(url);
-      
-      if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
-
-      // 1. Get the raw binary blob directly without reading it into an array string
-      const fileBlob = await response.blob();
-      
-      // 2. Map a DOM string directly to the binary storage segment
-      const localUrl = URL.createObjectURL(fileBlob);
-
-      // 3. Force browser down-stream pipe allocation using a hidden anchor element
-      const anchor = document.createElement("a");
-      anchor.href = localUrl;
-      anchor.download = filename;
-      
-      document.body.appendChild(anchor);
-      anchor.click();
-      
-      // 4. Immediately free system RAM allocations
-      document.body.removeChild(anchor);
-      URL.revokeObjectURL(localUrl);
-      console.log("Download successfully initialized.");
-
-    } catch (error) {
-      console.error("ISO Stream extraction failed:", error.message);
-    }
-  }
-};
-
-const tiny10url1 = TINY10_URL.downloadISO(url);
-  
 let emulator = null, paused = false;
 let statsTimer = null, uptimeStart = null;
 
@@ -457,12 +412,13 @@ function clearError() { document.getElementById('err_box').classList.remove('sho
 
 function setProgress(pct, text) {
   const pw = document.getElementById('prog_wrap');
-  pw.style.display = (pct >= 0 && pct <= 99) ? 'block' : 'none';
+  // Fix: hide at 100 (was pct <= 99, so 100 left bar visible)
+  pw.style.display = (pct >= 0 && pct < 100) ? 'block' : 'none';
   document.getElementById('prog_fill').style.width = pct + '%';
   document.getElementById('prog_text').textContent = text;
 }
 
-// ── Load v86 dynamically (fetch → Blob URL → script tag) ─────────────────────
+// ── Load v86 dynamically ──────────────────────────────────────────────────────
 let v86Loaded = false;
 
 async function ensureV86() {
@@ -527,11 +483,12 @@ async function startEmulator() {
     autostart: true,
   };
 
-  if      (boot === 'hda')   { cfg.hda   = { url: tiny10url1, async: true }; cfg.boot_order = 0x123; }
-  else if (boot === 'cdrom') { cfg.cdrom = { url: tiny10url1, async: true }; cfg.boot_order = 0x132; }
-  else                       { cfg.fda   = { url: tiny10url1              }; cfg.boot_order = 0x312; }
+  // Fix: use TINY10_URL string directly (was passing undefined/Promise)
+  if      (boot === 'hda')   { cfg.hda   = { url: TINY10_URL, async: true }; cfg.boot_order = 0x123; }
+  else if (boot === 'cdrom') { cfg.cdrom = { url: TINY10_URL, async: true }; cfg.boot_order = 0x132; }
+  else                       { cfg.fda   = { url: TINY10_URL              }; cfg.boot_order = 0x312; }
 
-  // Mount shared files as a FAT12 floppy on A: (only if files added and not booting from floppy)
+  // Mount shared files as a FAT12 floppy on A:
   if (sharedFiles.length > 0 && boot !== 'fda') {
     const totalSize = sharedFiles.reduce((s,f)=>s+f.data.length,0);
     if (totalSize <= MAX_FLOPPY) {
@@ -637,7 +594,6 @@ async function saveState() {
   a.download = 'v86-state.bin'; a.click();
   log('State saved.');
 }
-function loadStateFile() { document.getElementById('state_file').click(); }
 async function restoreState(input) {
   if (!emulator || !input.files[0]) return;
   await emulator.restore_state(await input.files[0].arrayBuffer());
