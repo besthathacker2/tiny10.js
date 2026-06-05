@@ -233,6 +233,7 @@
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/v86@0.5.44/build/libv86.js"></script>
 <script>
 "use strict";
 
@@ -419,28 +420,6 @@ function setProgress(pct, text) {
 }
 
 // ── Load v86 dynamically ──────────────────────────────────────────────────────
-let v86Loaded = false;
-
-async function ensureV86() {
-  if (v86Loaded && typeof V86 !== 'undefined') return true;
-
-  const LIB_URL = 'https://cdn.jsdelivr.net/npm/v86@0.5.44/build/libv86.js';
-  log('Loading libv86.js…');
-  setProgress(10, 'Loading libv86.js…');
-
-  await new Promise((resolve, reject) => {
-    const script = document.createElement('script');
-    script.src = LIB_URL;
-    script.onload = resolve;
-    script.onerror = () => reject(new Error('Failed to load libv86.js from jsDelivr. Check your internet connection.'));
-    document.head.appendChild(script);
-  });
-
-  if (typeof V86 === 'undefined') throw new Error('V86 class not found after loading libv86.js');
-  v86Loaded = true;
-  log('libv86.js loaded ✓');
-  return true;
-}
 
 // ── Start emulator ────────────────────────────────────────────────────────────
 async function startEmulator() {
