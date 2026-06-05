@@ -233,7 +233,7 @@
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/v86@0.5.44/build/libv86.js"></script>
+<script src="/libv86.js"></script>
 <script>
 "use strict";
 
@@ -448,7 +448,7 @@ async function startEmulator() {
   log(`Image: ${TINY10_URL}`);
   setProgress(50, 'Initialising CPU…');
 
-  const WASM_URL = 'https://cdn.jsdelivr.net/npm/v86@0.5.44/build/v86.wasm';
+  const WASM_URL = '/v86.wasm';
   const BIOS_URL = 'https://cdn.jsdelivr.net/npm/v86@0.5.44/bios/seabios.bin';
   const VGA_URL  = 'https://cdn.jsdelivr.net/npm/v86@0.5.44/bios/vgabios.bin';
 
